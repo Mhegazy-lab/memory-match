@@ -1,0 +1,1 @@
+{"version":1,"name":"Memory Match","description":"Flip pairs and test your memory.","appearance":{"theme_color":"#A78BFA","icon":{"src":"../icon-mono.png","type":"monochrome"},"icon_background":{"colors":["#A78BFA","#7C3AED","#1E1B4B","#04020F"],"stops":[0.0,0.33,0.66,1.0],"inner_glow_color":"#DDD6FE"}}}

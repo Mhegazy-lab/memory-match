@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memory Match</title>
+<link rel="icon" href="favicon.ico">
+<style>
+:root{--accent:#A78BFA}
+*{box-sizing:border-box}
+html,body{height:100%;overflow:hidden;margin:0}
+body{background:#04020F;color:#F4F1FF;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:10px;user-select:none;-webkit-user-select:none}
+h1{margin:0;font-size:28px;letter-spacing:3px;color:var(--accent);text-shadow:0 0 18px var(--accent)}
+.btn{background:transparent;border:2px solid var(--accent);color:var(--accent);border-radius:12px;font-size:20px;font-weight:700;padding:12px 30px;cursor:pointer;letter-spacing:1px;font-family:inherit}
+.btn:active{background:var(--accent);color:#04020F}
+[data-focusable]:focus{outline:none}
+[data-focusable]:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.hud{display:flex;gap:22px;font-size:19px;font-weight:600}
+.hud b{color:var(--accent)}
+#status{font-size:18px;font-weight:700;min-height:26px;color:var(--accent);text-align:center}
+#wrap{position:relative;line-height:0}
+#grid{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);gap:8px;background:#0d0a1f;border:2px solid var(--accent);border-radius:12px;box-shadow:0 0 24px rgba(167,139,250,.25);padding:10px;width:min(88vw,52dvh);height:min(88vw,52dvh)}
+.card{background:#1c1636;border:none;border-radius:10px;font-family:inherit;font-size:40px;cursor:pointer;color:transparent;padding:0;min-width:0;transition:transform .12s}
+.card.up{background:#241d4d;color:#fff;box-shadow:inset 0 0 0 2px var(--accent)}
+.card.matched{background:#16281c;color:#fff;box-shadow:inset 0 0 0 2px #4ADE80,0 0 14px rgba(74,222,128,.5)}
+.card:active{transform:scale(.94)}
+.overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(4,2,15,.9);border-radius:12px;line-height:1.4;text-align:center;padding:18px;z-index:2}
+.overlay .big{font-size:32px;font-weight:800;color:var(--accent);text-shadow:0 0 16px var(--accent)}
+.overlay .sub{font-size:20px}
+.hidden{display:none!important}
+#controls{display:flex;gap:12px;min-height:56px}
+.hint{font-size:14px;opacity:.55}
+</style>
+</head>
+<body>
+<h1>MEMORY MATCH</h1>
+<div class="hud"><span>MOVES <b id="moves">0</b></span><span>BEST <b id="best">&ndash;</b></span></div>
+<div id="status"></div>
+<div id="wrap">
+  <div id="grid"></div>
+  <div class="overlay" id="menuOv">
+    <div class="big">MEMORY MATCH</div>
+    <div class="sub">Arrows move &bull; Enter flips a card<br>Find all 8 pairs</div>
+    <button class="btn" id="startBtn" data-focusable>START</button>
+  </div>
+  <div class="overlay hidden" id="winOv">
+    <div class="big">YOU WIN!</div>
+    <div class="sub">Solved in <b id="finalMoves">0</b> moves</div>
+    <div class="sub" id="newBest" style="color:var(--accent)"></div>
+    <button class="btn" id="againBtn" data-focusable>PLAY AGAIN</button>
+  </div>
+</div>
+<div id="controls"><button class="btn hidden" id="newBtn" data-focusable>NEW GAME</button></div>
+<div class="hint">Arrow keys move cursor &bull; Enter flips the card</div>
+<script>
+(function(){
+"use strict";
+/* ================= pure logic ================= */
+var EMOJI=["\uD83D\uDE80","\uD83C\uDFA7","\uD83C\uDF19","\u26A1","\uD83C\uDF55","\uD83C\uDFB2","\uD83D\uDC19","\uD83C\uDF35"];
+function mmShuffle(a,rand){
+  rand=rand||Math.random;
+  for(var i=a.length-1;i>0;i--){ var j=(rand()*(i+1))|0; var t=a[i]; a[i]=a[j]; a[j]=t; }
+  return a;
+}
+function mmNew(rand){
+  var deck=[],i;
+  for(i=0;i<EMOJI.length;i++){ deck.push(EMOJI[i]); deck.push(EMOJI[i]); }
+  mmShuffle(deck,rand);
+  var up=[],matched=[];
+  for(i=0;i<16;i++){ up.push(false); matched.push(false); }
+  return {deck:deck,up:up,matched:matched,moves:0,lock:false,first:-1,pending:null};
+}
+function mmFlip(g,i){
+  if(g.lock||g.up[i]||g.matched[i]||i===g.first) return "none";
+  g.up[i]=true;
+  if(g.first===-1){ g.first=i; return "flip"; }
+  g.moves++;
+  var a=g.first; g.first=-1;
+  if(g.deck[a]===g.deck[i]){
+    g.matched[a]=true; g.matched[i]=true;
+    var all=true,k;
+    for(k=0;k<16;k++) if(!g.matched[k]){ all=false; break; }
+    return all?"win":"match";
+  }
+  g.lock=true; g.pending=[a,i];
+  return "miss";
+}
+function mmResolve(g){
+  if(!g.pending) return;
+  g.up[g.pending[0]]=false; g.up[g.pending[1]]=false;
+  g.pending=null; g.lock=false;
+}
+function loadJSON(store,key,def){ try{ var v=store.getItem(key); return v?JSON.parse(v):def; }catch(e){ return def; } }
+function saveJSON(store,key,val){ try{ store.setItem(key,JSON.stringify(val)); }catch(e){} }
+if(typeof module!=="undefined"&&module.exports){
+  module.exports={mmNew:mmNew,mmFlip:mmFlip,mmResolve:mmResolve,mmShuffle:mmShuffle,EMOJI:EMOJI,loadJSON:loadJSON,saveJSON:saveJSON};
+  return;
+}
+/* ================= DOM ================= */
+var AC=null;
+function beep(f,d,type){
+  try{
+    if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)();
+    var o=AC.createOscillator(),gn=AC.createGain();
+    o.type=type||"sine"; o.frequency.value=f; gn.gain.value=0.07;
+    o.connect(gn); gn.connect(AC.destination); o.start();
+    var t=AC.currentTime+(d||0.09);
+    gn.gain.exponentialRampToValueAtTime(0.0001,t); o.stop(t+0.02);
+  }catch(e){}
+}
+function chime(){ beep(660,0.09); setTimeout(function(){beep(990,0.12);},90); }
+var KEY="memory-match-v1";
+var grid=document.getElementById("grid"), movesEl=document.getElementById("moves"),
+    bestEl=document.getElementById("best"), statusEl=document.getElementById("status");
+var menuOv=document.getElementById("menuOv"), winOv=document.getElementById("winOv");
+var startBtn=document.getElementById("startBtn"), againBtn=document.getElementById("againBtn"), newBtn=document.getElementById("newBtn");
+var meta=loadJSON(localStorage,KEY,{best:0});
+bestEl.textContent=meta.best>0?meta.best:"\u2013";
+var g=null, cards=[], started=false;
+for(var i=0;i<16;i++){
+  (function(idx){
+    var b=document.createElement("button");
+    b.className="card"; b.setAttribute("data-focusable",""); b.textContent="?";
+    b.addEventListener("click",function(){ flipCard(idx); });
+    grid.appendChild(b); cards.push(b);
+  })(i);
+}
+function render(){
+  for(var i=0;i<16;i++){
+    var b=cards[i];
+    b.className="card";
+    if(g.matched[i]){ b.classList.add("matched"); b.textContent=g.deck[i]; }
+    else if(g.up[i]){ b.classList.add("up"); b.textContent=g.deck[i]; }
+    else b.textContent="?";
+  }
+  movesEl.textContent=g.moves;
+}
+function setMenu(on){
+  menuOv.classList.toggle("hidden",!on);
+  winOv.classList.add("hidden");
+  newBtn.classList.toggle("hidden",on);
+  started=!on;
+  if(on) startBtn.focus(); else cards[5].focus();
+}
+function startGame(){
+  g=mmNew(); statusEl.textContent="";
+  render(); setMenu(false); beep(440,0.08);
+}
+function flipCard(idx){
+  if(!started||!g) return;
+  var r=mmFlip(g,idx);
+  if(r==="none") return;
+  render();
+  if(r==="flip"){ beep(520,0.07); }
+  else if(r==="match"){ chime(); statusEl.textContent="Match!"; }
+  else if(r==="miss"){
+    beep(200,0.12,"triangle"); statusEl.textContent="";
+    setTimeout(function(){ mmResolve(g); render(); },800);
+  }
+  else if(r==="win"){
+    chime(); setTimeout(function(){beep(1320,0.2);},200);
+    document.getElementById("finalMoves").textContent=g.moves;
+    var nb="";
+    if(meta.best===0||g.moves<meta.best){ meta.best=g.moves; saveJSON(localStorage,KEY,meta); bestEl.textContent=meta.best; nb="NEW BEST!"; }
+    document.getElementById("newBest").textContent=nb;
+    statusEl.textContent="All pairs found!";
+    winOv.classList.remove("hidden");
+    againBtn.focus();
+  }
+}
+startBtn.addEventListener("click",startGame);
+againBtn.addEventListener("click",startGame);
+newBtn.addEventListener("click",startGame);
+document.addEventListener("keydown",function(e){
+  var k=e.key, ae=document.activeElement, isBtn=ae&&ae.tagName==="BUTTON";
+  if(k==="ArrowUp"||k==="ArrowDown"||k==="ArrowLeft"||k==="ArrowRight"||k===" ") e.preventDefault();
+  if(started){
+    var idx=cards.indexOf(ae);
+    if(idx>=0){
+      var r=(idx/4)|0, c=idx%4;
+      if(k==="ArrowLeft"&&c>0){ cards[idx-1].focus(); return; }
+      if(k==="ArrowRight"&&c<3){ cards[idx+1].focus(); return; }
+      if(k==="ArrowUp"&&r>0){ cards[idx-4].focus(); return; }
+      if(k==="ArrowDown"&&r<3){ cards[idx+4].focus(); return; }
+    }else{
+      if(k==="ArrowDown"||k==="ArrowRight"){ cards[5].focus(); return; }
+    }
+  }else{
+    if(k==="ArrowDown"||k==="ArrowRight"||k==="ArrowUp"||k==="ArrowLeft"){
+      var els=[],all=document.querySelectorAll("[data-focusable]");
+      for(var i=0;i<all.length;i++) if(all[i].getClientRects().length>0) els.push(all[i]);
+      if(els.length){ var ix=els.indexOf(ae); els[(ix+1+els.length)%els.length].focus(); }
+    }
+  }
+  if((k==="Enter"||k===" ")&&isBtn){ e.preventDefault(); ae.click(); }
+});
+setMenu(true);
+})();
+</script>
+</body>
+</html>
